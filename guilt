@@ -775,14 +775,30 @@ push_patch()
 	return $__push_patch_bail
 }
 
-# usage: must_commit_first
-must_commit_first()
+# usage: _must_commit_first
+_must_commit_first()
 {
 	git update-index --refresh --unmerged -q > /dev/null
 	[ `git diff-files | wc -l` -eq 0 ] || return $?
 	[ `git diff-index HEAD | wc -l` -eq 0 ]
 	return $?
 }
+
+# usage: must_commit_first
+must_commit_first()
+{ (
+	cd_to_toplevel
+
+	_build_sm
+
+	while read sm
+	do
+		(cd "$sm" && _must_commit_first) || exit $?
+	done <<EOF
+$(cat "$gitmodules" 2>/dev/null; echo .;)
+EOF
+	exit 0
+) }
 
 # usage: fold_patch patchname
 fold_patch()
