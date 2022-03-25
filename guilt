@@ -551,10 +551,10 @@ pop_many_patches()
 	(
 		cd_to_toplevel
 
+		_git_reset --hard "refs/patches/$branch/$1^" > /dev/null
+
 		# remove the patches refs
 		tail -n $2 < "$applied" | remove_patch_refs
-
-		git reset --hard "$1" > /dev/null
 
 		n=`wc -l < "$applied"`
 		n=`expr $n - $2`
@@ -572,12 +572,12 @@ pop_many_patches()
 pop_all_patches()
 {
 	pop_many_patches \
-		`git rev-parse refs/patches/$branch/$(head_n 1 "$applied")^` \
+		$(head_n 1 "$applied") \
 		`wc -l < "$applied"`
 }
 
-# usage: remove_ref <refname>
-remove_ref()
+# usage: remove_ref <refname> <dir>
+_remove_ref()
 {
 	(
 		# does the ref exist?
@@ -588,6 +588,19 @@ remove_ref()
 		git update-ref -d "$1" "$r"
 	)
 }
+
+# usage: remove_ref <refname>
+remove_ref()
+{ (
+	cd_to_toplevel
+
+	_build_sm
+
+	{ cat "$gitmodules" 2>/dev/null; echo .; } | while read sm
+	do
+		(cd "$sm" && _remove_ref "$1" "$sm")
+	done
+) }
 
 _git_diff() {
 	git diff --submodule=diff "$@" |
@@ -600,6 +613,18 @@ _git_diff() {
 #	  smline=$0; NF -= 3; $1=""; smre="a/"substr($0,2); next}
 #        (smline!="") {if ($0 !~ smre) { print smline; } smline=""}
 #        {print}'
+}
+
+_git_reset()
+{
+	p=$1
+
+	_build_sm
+
+	{ cat "$gitmodules" 2>/dev/null; echo .; } | while read sm
+	do
+		(cd "$sm" && git reset "$@")
+	done
 }
 
 # usage: build_sm
