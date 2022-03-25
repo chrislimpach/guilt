@@ -28,6 +28,6 @@ PREV=HEAD^
 [ -z "`get_top`" ] && PREV=
 [ ! -z "$working_tree" ] && PREV=
 
-git diff --binary $PREV -- "$@"
+_git_diff --binary $PREV -- "$@"
 
 }

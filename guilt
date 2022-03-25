@@ -589,15 +589,39 @@ remove_ref()
 	)
 }
 
-# usage: commit patchname parent
-commit()
+_git_diff() {
+	git diff --submodule=diff "$@" |
+		awk '
+			/^Submodule / { next}
+			{print}'
+# fancy awk with check that line after Submodule line is a diff line
+#	awk '
+#	/^Submodule .* contains modified content$/ {
+#	  smline=$0; NF -= 3; $1=""; smre="a/"substr($0,2); next}
+#        (smline!="") {if ($0 !~ smre) { print smline; } smline=""}
+#        {print}'
+}
+
+# usage: build_sm
+_build_sm()
+{
+	[ -e ".gitmodules" ] || return
+
+	[ "$gitmodules" -nt ".gitmodules" ] 2>/dev/null || {
+		git submodule status --cached --recursive |
+			awk '{print $2}' | tac >"$gitmodules"
+	}
+}
+
+# usage: _commit patchname parent submodule
+_commit()
 {
 	(
 		TMP_MSG=`get_tmp_file msg`
 
 		p="$GUILT_DIR/$branch/$1"
 		pname="$1"
-		cd_to_toplevel
+		[ -z "$3" ] || cd "$3"
 
 		git diff-files --name-only | (while read n; do git update-index "$n" ; done)
 
@@ -664,6 +688,19 @@ commit()
 		rm -f "$TMP_MSG"
 	)
 }
+
+# usage: commit patchname parent
+commit()
+{ (
+	cd_to_toplevel
+
+	_build_sm
+
+	{ cat "$gitmodules" 2>/dev/null; echo .; } | while read sm
+	do
+		_commit "$1" "$2" "$sm"
+	done
+) }
 
 # usage: push_patch patchname [bail_action]
 push_patch()
@@ -805,7 +842,7 @@ __refresh_patch()
 		fi
 
 		# get the new patch
-		git diff --binary $diffopts "$2" >> "$TMP_DIFF"
+		_git_diff --binary $diffopts "$2" >> "$TMP_DIFF"
 
 		# move the new patch in
 		mv "$p" "$p~"
@@ -981,6 +1018,7 @@ fi
 series="$GUILT_DIR/$branch/series"
 applied="$GUILT_DIR/$branch/status"
 guards_file="$GUILT_DIR/$branch/guards"
+gitmodules="$GUILT_DIR/$branch/gitmodules"
 
 # determine a pager to use for anything interactive (fall back to more)
 pager="more"
