@@ -727,6 +727,88 @@ commit()
 	done
 ) }
 
+# from https://stackoverflow.com/a/63864756
+pop_last_arg() {
+    local n=$(($#-1))
+    local index=0
+    local arguments=""
+    while [ $index -lt $n ]; do
+	index=$((index+1))
+	arguments="$arguments \"\${$index}\""
+    done
+    POP_EXPR="set -- $arguments"
+}
+
+_git_apply()
+{ (
+	__push_patch_bail=0
+
+	cd_to_toplevel
+
+	_build_sm
+
+	[ -s "$gitmodules" ] || {
+		git apply "$@"
+		exit $?
+	}
+
+	patch=$(eval echo $(echo \$$#))
+	pop_last_arg "$@"
+	eval "$POP_EXPR"
+
+	smre=$(cat "$gitmodules" | while read sm
+	       do
+		       echo -n $sm'\|'
+	       done | sed -e 's,^,.* a/\\(,' -e 's/..$/\\)/')
+
+	TMP_PATCHES=`get_tmp_file patch`
+
+	smpatch=.
+
+	cat "$p" | while IFS= read -r l
+	do
+		kind=$(expr "$l" : '\(diff\|---\|\+\+\+\) ' || true)
+
+		[ "$kind" != "diff" ] || {
+			sm=$(expr "$l" : "$smre" || true)
+			smpatch=$(echo ${sm:-.} |
+					  sed -e 's,_,__,g' -e 's,/,_,g')
+			smsed=
+			[ -z "$sm" ] || smsed="s,\\([ab]\\)/$sm/,\1/,g"
+		}
+
+		case "$kind" in
+			diff|---|+++)
+				printf "%s\n" "$l" | sed -e "$smsed" >>${TMP_PATCHES}-"$smpatch"
+				;;
+			*)
+				printf "%s\n" "$l" >>${TMP_PATCHES}-"$smpatch"
+				;;
+		esac
+	done
+
+	while read sm
+	do
+		smpatch=$(echo "$sm" | sed -e 's,_,__,g' -e 's,/,_,g')
+		[ ! -s ${TMP_PATCHES}-"$smpatch" ] || {
+			(cd "$sm" && git apply "$@" ${TMP_PATCHES}-"$smpatch") || {
+				__push_patch_bail=$?
+				[ "$bail_action" != "abort" ] || {
+					_git_reset --hard
+					rm -f ${TMP_PATCHES}*
+					exit $__push_patch_bail
+				}
+			}
+		}
+	done <<EOF
+$(cat "$gitmodules" 2>/dev/null; echo .;)
+EOF
+
+	rm -f ${TMP_PATCHES}*
+
+	exit $__push_patch_bail
+) }
+
 # usage: push_patch patchname [bail_action]
 push_patch()
 {
@@ -748,7 +830,7 @@ push_patch()
 			if [ "$bail_action" = abort ]; then
 				reject=""
 			fi
-			git apply $guilt_push_diff_context --index \
+			_git_apply $guilt_push_diff_context --index \
 				$reject "$p" > /dev/null 2> "$TMP_LOG"
 			__push_patch_bail=$?
 
